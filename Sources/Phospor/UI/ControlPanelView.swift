@@ -5,6 +5,8 @@ struct ControlPanelView: View {
     var onClose: () -> Void
     var onPickSource: () -> Void
     var onToggleRecord: () -> Void
+    var onToggleCamera: () -> Void
+    var onToggleMicrophone: () -> Void
 
     var body: some View {
         TerminalPanel(header: "PHOSPOR // REC") {
@@ -25,7 +27,8 @@ struct ControlPanelView: View {
                 TerminalRow(
                     icon: state.cameraEnabled ? "video.fill" : "video.slash.fill",
                     title: state.cameraEnabled ? "CAMERA" : "NO CAMERA",
-                    action: { state.cameraEnabled.toggle() }
+                    subtitle: state.cameraDeniedHint,
+                    action: onToggleCamera
                 ) {
                     TerminalPill(
                         text: state.cameraEnabled ? "ON" : "OFF",
@@ -36,7 +39,7 @@ struct ControlPanelView: View {
                 TerminalRow(
                     icon: state.microphoneEnabled ? "mic.fill" : "mic.slash.fill",
                     title: state.microphoneEnabled ? "MICROPHONE" : "NO MICROPHONE",
-                    action: { state.microphoneEnabled.toggle() }
+                    action: onToggleMicrophone
                 ) {
                     TerminalPill(
                         text: state.microphoneEnabled ? "ON" : "OFF",

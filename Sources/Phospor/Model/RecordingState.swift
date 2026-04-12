@@ -14,6 +14,10 @@ final class RecordingState {
     var cameraEnabled: Bool = false
     var microphoneEnabled: Bool = false
 
+    /// Optional hint shown under the camera row — e.g. when permission is
+    /// denied. `nil` when everything is fine.
+    var cameraDeniedHint: String? = nil
+
     /// Currently selected capture source. `nil` until the user picks one.
     var source: CaptureSource? {
         didSet {

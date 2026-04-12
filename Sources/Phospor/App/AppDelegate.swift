@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controlPanel: NSPanel?
     private var sourcePickerPanel: NSPanel?
     private let outline = OutlineWindowController()
+    private let cameraBubble = CameraBubbleWindowController()
     private let state = RecordingState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -30,7 +31,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             state: state,
             onClose: { NSApp.terminate(nil) },
             onPickSource: { [weak self] in self?.handlePickSource() },
-            onToggleRecord: { [weak self] in self?.handleToggleRecord() }
+            onToggleRecord: { [weak self] in self?.handleToggleRecord() },
+            onToggleCamera: { [weak self] in self?.handleToggleCamera() },
+            onToggleMicrophone: { [weak self] in self?.handleToggleMicrophone() }
         )
 
         let hosting = NSHostingView(rootView: view)
@@ -71,6 +74,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         outline.hide()
+        cameraBubble.hide()
+    }
+
+    // MARK: - Camera
+
+    private func handleToggleCamera() {
+        if state.cameraEnabled {
+            // Turn off
+            cameraBubble.hide()
+            state.cameraEnabled = false
+            state.cameraDeniedHint = nil
+            return
+        }
+
+        // Turn on — request permission first.
+        Task {
+            let granted = await CameraCaptureManager.shared.requestPermission()
+            await MainActor.run {
+                if granted {
+                    self.cameraBubble.show()
+                    self.state.cameraEnabled = true
+                    self.state.cameraDeniedHint = nil
+                } else {
+                    self.state.cameraEnabled = false
+                    self.state.cameraDeniedHint = "PERMISSION DENIED — OPEN SETTINGS"
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+            }
+        }
+    }
+
+    private func handleToggleMicrophone() {
+        // Wired in Phase 5 — for now this is a placeholder so the row works.
+        state.microphoneEnabled.toggle()
     }
 
     // MARK: - Source picker
@@ -185,15 +224,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// NSWindow numbers we want excluded from the recording (control panel,
-    /// outline overlay, source picker if open).
+    /// NSWindow numbers we want excluded from the recording. Explicitly the
+    /// control panel + source picker + outline overlay. The camera bubble is
+    /// NOT excluded — it must appear in the recorded video so the user's
+    /// webcam ends up baked into the screen track.
     private func excludedWindowNumbers() -> [Int] {
         var nums: [Int] = []
         if let n = controlPanel?.windowNumber { nums.append(n) }
         if let n = sourcePickerPanel?.windowNumber { nums.append(n) }
-        // Plus any other Phospor-owned windows currently on screen.
+        // The outline window is owned by OutlineWindowController, not in
+        // NSApp.windows directly until shown; iterate to find it by title.
         for w in NSApp.windows where w.isVisible {
-            if !nums.contains(w.windowNumber) {
+            if w.title == "Phospor Outline", !nums.contains(w.windowNumber) {
                 nums.append(w.windowNumber)
             }
         }

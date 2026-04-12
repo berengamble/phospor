@@ -3,34 +3,37 @@ import Observation
 
 @Observable
 final class RecordingState {
-    enum Phase: Equatable {
-        case idle
-        case armed       // source selected, ready to record
-        case recording
-        case stopping
+  enum Phase: Equatable {
+    case idle
+    case armed  // source selected, ready to record
+    case recording
+    case stopping
+  }
+
+  var phase: Phase = .idle
+  var cameraEnabled: Bool = false
+  var microphoneEnabled: Bool = false
+
+  /// Optional hint shown under the camera row — e.g. when permission is
+  /// denied. `nil` when everything is fine.
+  var cameraDeniedHint: String? = nil
+
+  /// Optional hint shown under the microphone row when permission is denied.
+  var microphoneDeniedHint: String? = nil
+
+  /// Currently selected capture source. `nil` until the user picks one.
+  var source: CaptureSource? {
+    didSet {
+      if source != nil, phase == .idle {
+        phase = .armed
+      }
     }
+  }
 
-    var phase: Phase = .idle
-    var cameraEnabled: Bool = false
-    var microphoneEnabled: Bool = false
+  /// Human-readable label for the currently selected source.
+  var sourceLabel: String {
+    source?.title ?? "NO SOURCE"
+  }
 
-    /// Optional hint shown under the camera row — e.g. when permission is
-    /// denied. `nil` when everything is fine.
-    var cameraDeniedHint: String? = nil
-
-    /// Currently selected capture source. `nil` until the user picks one.
-    var source: CaptureSource? {
-        didSet {
-            if source != nil, phase == .idle {
-                phase = .armed
-            }
-        }
-    }
-
-    /// Human-readable label for the currently selected source.
-    var sourceLabel: String {
-        source?.title ?? "NO SOURCE"
-    }
-
-    var isRecording: Bool { phase == .recording }
+  var isRecording: Bool { phase == .recording }
 }

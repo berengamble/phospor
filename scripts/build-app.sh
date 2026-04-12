@@ -25,8 +25,17 @@ mkdir -p "$APP_DIR/Contents/Resources"
 cp "$BIN_PATH" "$APP_DIR/Contents/MacOS/$APP_NAME"
 cp "$ROOT/Resources/Info.plist" "$APP_DIR/Contents/Info.plist"
 
-# Ad-hoc sign so TCC has a stable identity for this build
-codesign --force --sign - "$APP_DIR" >/dev/null 2>&1 || true
+# Sign with the stable "Phospor Dev" certificate if available — this keeps
+# TCC permissions (screen recording, camera, mic) across rebuilds. Falls
+# back to ad-hoc signing if the cert hasn't been set up yet.
+if security find-identity -v -p codesigning 2>/dev/null | grep -q "Phospor Dev"; then
+    codesign --force --sign "Phospor Dev" "$APP_DIR" >/dev/null 2>&1
+else
+    echo "⚠  No 'Phospor Dev' certificate — using ad-hoc signing."
+    echo "   TCC permissions will reset on every rebuild."
+    echo "   Run ./scripts/setup-cert.sh once to fix this."
+    codesign --force --sign - "$APP_DIR" >/dev/null 2>&1 || true
+fi
 
 # Touch the bundle so Finder/Launch Services notices changes
 touch "$APP_DIR"

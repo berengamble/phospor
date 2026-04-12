@@ -1,0 +1,86 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+  pull_request:
+  workflow_call:
+    inputs:
+      ref:
+        description: 'Git ref (tag or sha) to build'
+        required: false
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Git ref (tag or sha) to build'
+        required: false
+        type: string
+        default: ''
+
+jobs:
+  build:
+    name: Build Phospor.app
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+          swift --version
+
+      - name: Install swift-format
+        run: brew install swift-format
+
+      - name: Lint (swift-format)
+        run: swift-format lint --strict --recursive Sources
+
+      - name: Build and assemble .app bundle
+        run: ./scripts/build-app.sh release
+
+      - name: Zip .app bundle
+        run: |
+          cd build
+          ditto -c -k --sequesterRsrc --keepParent Phospor.app Phospor.app.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Phospor-app
+          path: build/Phospor.app.zip
+          if-no-files-found: error
+
+      - name: Determine release tag
+        id: tag
+        if: startsWith(github.ref, 'refs/tags/') || inputs.ref != ''
+        run: |
+          if [ -n "${{ inputs.ref }}" ]; then
+            TAG="${{ inputs.ref }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+          echo "name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG"
+
+      - name: Attach asset to release
+        if: steps.tag.outputs.name != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          name: Release ${{ steps.tag.outputs.name }}
+          files: build/Phospor.app.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

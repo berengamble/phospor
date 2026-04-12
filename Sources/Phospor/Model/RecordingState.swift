@@ -14,9 +14,19 @@ final class RecordingState {
     var cameraEnabled: Bool = false
     var microphoneEnabled: Bool = false
 
-    /// Human-readable label for the currently selected source. Real source
-    /// model lands when ScreenCaptureManager comes online.
-    var sourceLabel: String = "FULL SCREEN"
+    /// Currently selected capture source. `nil` until the user picks one.
+    var source: CaptureSource? {
+        didSet {
+            if source != nil, phase == .idle {
+                phase = .armed
+            }
+        }
+    }
+
+    /// Human-readable label for the currently selected source.
+    var sourceLabel: String {
+        source?.title ?? "NO SOURCE"
+    }
 
     var isRecording: Bool { phase == .recording }
 }

@@ -4,6 +4,8 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controlPanel: NSPanel?
+    private var sourcePickerPanel: NSPanel?
+    private let outline = OutlineWindowController()
     private let state = RecordingState()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,7 +28,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let view = ControlPanelView(
             state: state,
-            onClose: { [weak self] in self?.hideControlPanel() },
+            onClose: { NSApp.terminate(nil) },
             onPickSource: { [weak self] in self?.handlePickSource() },
             onToggleRecord: { [weak self] in self?.handleToggleRecord() }
         )
@@ -67,24 +69,144 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controlPanel = panel
     }
 
-    private func hideControlPanel() {
-        controlPanel?.orderOut(nil)
+    func applicationWillTerminate(_ notification: Notification) {
+        outline.hide()
     }
 
-    // MARK: - Actions (stubs for now)
+    // MARK: - Source picker
 
     private func handlePickSource() {
-        NSLog("[phospor] pick source — picker not yet implemented")
+        if let existing = sourcePickerPanel {
+            existing.close()
+            sourcePickerPanel = nil
+            return
+        }
+
+        let view = SourcePickerView(
+            onSelect: { [weak self] source in
+                guard let self else { return }
+                self.state.source = source
+                self.outline.show(for: source)
+                self.closeSourcePicker()
+            },
+            onClose: { [weak self] in self?.closeSourcePicker() }
+        )
+
+        let hosting = NSHostingView(rootView: view)
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 400, height: 480),
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isMovableByWindowBackground = true
+        panel.hasShadow = true
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.contentView = hosting
+
+        // Anchor the picker just to the left of the control panel.
+        if let anchor = controlPanel {
+            let size = hosting.fittingSize == .zero ? NSSize(width: 400, height: 480) : hosting.fittingSize
+            let anchorFrame = anchor.frame
+            let origin = NSPoint(
+                x: anchorFrame.minX - size.width - 12,
+                y: anchorFrame.maxY - size.height
+            )
+            panel.setFrame(NSRect(origin: origin, size: size), display: true)
+        }
+
+        panel.makeKeyAndOrderFront(nil)
+        sourcePickerPanel = panel
+    }
+
+    private func closeSourcePicker() {
+        sourcePickerPanel?.close()
+        sourcePickerPanel = nil
     }
 
     private func handleToggleRecord() {
         switch state.phase {
         case .idle, .armed:
-            state.phase = .recording
+            startRecording()
         case .recording:
-            state.phase = .idle
+            stopRecording()
         case .stopping:
             break
         }
+    }
+
+    private func startRecording() {
+        guard let source = state.source else {
+            NSLog("[phospor] start requested with no source selected")
+            return
+        }
+
+        let outputURL = Self.makeOutputURL()
+        let excluded = excludedWindowNumbers()
+
+        Task {
+            do {
+                try await ScreenCaptureManager.shared.startRecording(
+                    source: source,
+                    excludedWindowNumbers: excluded,
+                    outputURL: outputURL
+                )
+                await MainActor.run { self.state.phase = .recording }
+                NSLog("[phospor] recording → \(outputURL.path)")
+            } catch {
+                NSLog("[phospor] failed to start recording: \(error.localizedDescription)")
+                await MainActor.run { self.state.phase = .armed }
+            }
+        }
+    }
+
+    private func stopRecording() {
+        state.phase = .stopping
+        Task {
+            do {
+                let url = try await ScreenCaptureManager.shared.stopRecording()
+                await MainActor.run {
+                    self.state.phase = self.state.source == nil ? .idle : .armed
+                }
+                if let url {
+                    NSLog("[phospor] saved → \(url.path)")
+                    await MainActor.run { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                }
+            } catch {
+                NSLog("[phospor] failed to stop recording: \(error.localizedDescription)")
+                await MainActor.run { self.state.phase = .recording }
+            }
+        }
+    }
+
+    /// NSWindow numbers we want excluded from the recording (control panel,
+    /// outline overlay, source picker if open).
+    private func excludedWindowNumbers() -> [Int] {
+        var nums: [Int] = []
+        if let n = controlPanel?.windowNumber { nums.append(n) }
+        if let n = sourcePickerPanel?.windowNumber { nums.append(n) }
+        // Plus any other Phospor-owned windows currently on screen.
+        for w in NSApp.windows where w.isVisible {
+            if !nums.contains(w.windowNumber) {
+                nums.append(w.windowNumber)
+            }
+        }
+        return nums
+    }
+
+    private static func makeOutputURL() -> URL {
+        let movies = FileManager.default.urls(for: .moviesDirectory, in: .userDomainMask).first
+            ?? URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Movies")
+        let dir = movies.appendingPathComponent("Phospor", isDirectory: true)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HHmmss"
+        let name = "Phospor-\(formatter.string(from: Date())).mp4"
+        return dir.appendingPathComponent(name)
     }
 }

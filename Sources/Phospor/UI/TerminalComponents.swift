@@ -120,6 +120,8 @@ struct TerminalRow<Trailing: View>: View {
                         .font(Theme.mono(11, weight: .bold))
                         .kerning(1)
                         .foregroundStyle(Theme.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
                     if let subtitle {
                         Text(subtitle)
                             .font(Theme.mono(9))
@@ -128,11 +130,12 @@ struct TerminalRow<Trailing: View>: View {
                             .truncationMode(.middle)
                     }
                 }
-                Spacer(minLength: 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 trailing()
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .overlay(
                 Rectangle().stroke(Theme.dim, lineWidth: 1)
             )

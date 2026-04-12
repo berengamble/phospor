@@ -16,7 +16,9 @@ echo "▶ Building ($CONFIG)..."
 swift build -c "$CONFIG"
 
 echo "▶ Assembling $APP_NAME.app..."
-rm -rf "$APP_DIR"
+# Update in place when the bundle already exists so the path/inode stays
+# stable — this gives TCC a better chance of remembering screen-recording
+# permission across rebuilds.
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 

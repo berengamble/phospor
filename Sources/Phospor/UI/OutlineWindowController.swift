@@ -44,7 +44,8 @@ final class OutlineWindowController {
     guard case .window = trackedSource else { return }
 
     let timer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
-      Task { @MainActor in self?.applyCurrentFrame(force: false) }
+      guard let self else { return }
+      Task { @MainActor in self.applyCurrentFrame(force: false) }
     }
     RunLoop.main.add(timer, forMode: .common)
     trackingTimer = timer

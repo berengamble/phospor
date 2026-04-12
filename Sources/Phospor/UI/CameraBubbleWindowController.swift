@@ -151,8 +151,9 @@ final class CameraBubbleWindowController: NSObject, NSWindowDelegate {
   private func scheduleSnap() {
     snapTimer?.invalidate()
     snapTimer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: false) { [weak self] _ in
+      guard let self else { return }
       Task { @MainActor in
-        self?.snapToNearestCorner(animated: true)
+        self.snapToNearestCorner(animated: true)
       }
     }
   }

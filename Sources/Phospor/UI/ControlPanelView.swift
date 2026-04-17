@@ -56,6 +56,10 @@ struct ControlPanelView: View {
         )
         .frame(maxWidth: .infinity)
 
+        if state.isRecording {
+          markerIndicators
+        }
+
         statusLine
       }
     }
@@ -86,6 +90,55 @@ struct ControlPanelView: View {
       }
       .buttonStyle(.plain)
     }
+  }
+
+  private var markerIndicators: some View {
+    VStack(spacing: 8) {
+      // VU meter with threshold control
+      if state.microphoneEnabled {
+        TerminalVUMeter(
+          level: dbToLevel(state.audioLevelDB),
+          threshold: dbToLevel(state.audioThresholdDB),
+          onThresholdChange: { newLevel in
+            state.audioThresholdDB = levelToDB(newLevel)
+          }
+        )
+      }
+
+      // Marker count + last marker
+      HStack(spacing: 8) {
+        Image(systemName: "bookmark.fill")
+          .font(.system(size: 10, weight: .bold))
+          .foregroundStyle(Theme.primary)
+        Text("MARKERS: \(state.markerCount)")
+          .font(Theme.mono(9, weight: .bold))
+          .kerning(1)
+          .foregroundStyle(Theme.primary)
+        Spacer()
+      }
+      if let label = state.lastMarkerLabel {
+        Text(label)
+          .font(Theme.mono(8))
+          .foregroundStyle(Theme.muted)
+          .lineLimit(1)
+          .truncationMode(.tail)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
+    .overlay(Rectangle().stroke(Theme.dim, lineWidth: 1))
+  }
+
+  /// Map dB (-60…0) to 0–9 scale.
+  private func dbToLevel(_ db: Float) -> Int {
+    let clamped = max(-60, min(0, db))
+    return Int(((clamped + 60) / 60) * 9)
+  }
+
+  /// Map 0–9 scale back to dB.
+  private func levelToDB(_ level: Int) -> Float {
+    (Float(level) / 9.0 * 60.0) - 60.0
   }
 
   private var statusLine: some View {

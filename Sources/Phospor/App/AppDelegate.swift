@@ -8,6 +8,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
   private let outline = OutlineWindowController()
   private let cameraBubble = CameraBubbleWindowController()
   private let state = RecordingState()
+  private var currentMarkerStore: MarkerStore?
+  private var markerServer: MarkerServer?
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.setActivationPolicy(.accessory)
@@ -217,6 +219,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let bubbleNum = cameraBubble.isVisible ? cameraBubble.windowNumber : nil
     let withMic = state.microphoneEnabled
 
+    let markers = MarkerStore()
+    markers.onMarkerAdded = { [weak self] marker in
+      self?.state.markerCount += 1
+      self?.state.lastMarkerLabel = marker.chapterTitle
+    }
+    currentMarkerStore = markers
+
+    // Start the marker HTTP endpoint so hooks can POST events.
+    let server = MarkerServer(markerStore: markers)
+    try? server.start()
+    markerServer = server
+
+    // Audio level monitor for speech markers.
+    let audioMonitor = withMic
+      ? AudioLevelMonitor(markerStore: markers, thresholdDB: state.audioThresholdDB)
+      : nil
+    audioMonitor?.onLevelUpdate = { [weak self] db in
+      self?.state.audioLevelDB = db
+    }
+
     Task {
       do {
         try await ScreenCaptureManager.shared.startRecording(
@@ -224,6 +246,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
           excludedWindowNumbers: excluded,
           cameraBubbleWindowNumber: bubbleNum,
           recordMicrophone: withMic,
+          markerStore: markers,
+          audioLevelMonitor: audioMonitor,
           outputURL: outputURL
         )
         await MainActor.run { self.state.phase = .recording }
@@ -237,11 +261,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
   private func stopRecording() {
     state.phase = .stopping
+    markerServer?.stop()
+    markerServer = nil
+    currentMarkerStore = nil
     Task {
       do {
         let url = try await ScreenCaptureManager.shared.stopRecording()
         await MainActor.run {
           self.state.phase = self.state.source == nil ? .idle : .armed
+          self.state.markerCount = 0
+          self.state.lastMarkerLabel = nil
+          self.state.audioLevelDB = -160
         }
         if let url {
           NSLog("[phospor] saved → \(url.path)")

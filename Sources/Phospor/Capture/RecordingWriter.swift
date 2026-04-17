@@ -11,8 +11,10 @@ final class RecordingWriter: @unchecked Sendable {
   private let writer: AVAssetWriter
   private let videoInput: AVAssetWriterInput
   private let audioInput: AVAssetWriterInput?
+  private let chapterAdaptor: AVAssetWriterInputMetadataAdaptor?
   private var sessionStarted = false
   private var sessionStartTime: CMTime = .zero
+  private var lastVideoPTS: CMTime = .zero
   private let lock = NSLock()
 
   init(outputURL: URL, width: Int, height: Int, includeAudio: Bool) throws {
@@ -76,6 +78,16 @@ final class RecordingWriter: @unchecked Sendable {
       self.audioInput = nil
     }
 
+    // ----- Chapter (metadata) input -----
+    let (chapterInput, chAdaptor) = MarkerStore.makeChapterInput()
+    if writer.canAdd(chapterInput) {
+      writer.add(chapterInput)
+      self.chapterAdaptor = chAdaptor
+    } else {
+      NSLog("[phospor] writer: chapter input rejected")
+      self.chapterAdaptor = nil
+    }
+
     guard writer.startWriting() else {
       throw writer.error
         ?? NSError(
@@ -103,6 +115,10 @@ final class RecordingWriter: @unchecked Sendable {
 
     if ready {
       videoInput.append(sampleBuffer)
+      let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+      lock.lock()
+      lastVideoPTS = pts
+      lock.unlock()
     }
   }
 
@@ -130,10 +146,22 @@ final class RecordingWriter: @unchecked Sendable {
     }
   }
 
-  /// Flush + finalize. Returns the output URL when finished.
-  func finish() async -> URL {
+  /// Flush chapters + finalize. Returns the output URL when finished.
+  func finish(markerStore: MarkerStore?) async -> URL {
+    // Write chapter markers into the metadata track before finishing.
+    if let adaptor = chapterAdaptor, let store = markerStore {
+      let duration = currentDuration()
+      store.writeChapters(to: adaptor, totalDuration: duration)
+    }
+
     markInputsFinished()
     await writer.finishWriting()
+
+    // Write sidecar JSON alongside the mp4.
+    if let store = markerStore {
+      try? store.writeSidecarJSON(for: outputURL)
+    }
+
     return outputURL
   }
 
@@ -142,5 +170,12 @@ final class RecordingWriter: @unchecked Sendable {
     defer { lock.unlock() }
     videoInput.markAsFinished()
     audioInput?.markAsFinished()
+    chapterAdaptor?.assetWriterInput.markAsFinished()
+  }
+
+  private func currentDuration() -> CMTime {
+    lock.lock()
+    defer { lock.unlock() }
+    return CMTimeSubtract(lastVideoPTS, sessionStartTime)
   }
 }

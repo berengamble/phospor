@@ -36,4 +36,21 @@ final class RecordingState {
   }
 
   var isRecording: Bool { phase == .recording }
+
+  // MARK: - Markers (live during recording)
+
+  /// Number of markers placed so far this recording.
+  var markerCount: Int = 0
+  /// Label of the most recent marker (for the UI flash).
+  var lastMarkerLabel: String? = nil
+  /// Current mic audio level in dB (updated during recording).
+  var audioLevelDB: Float = -160
+  /// Threshold in dB above which audio triggers speech markers.
+  var audioThresholdDB: Float = -30
+
+  /// Convenience for SwiftUI bindings that need CGFloat.
+  var audioThresholdDBCG: CGFloat {
+    get { CGFloat(audioThresholdDB) }
+    set { audioThresholdDB = Float(newValue) }
+  }
 }

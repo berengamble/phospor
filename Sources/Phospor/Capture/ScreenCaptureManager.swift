@@ -14,6 +14,8 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
   private let lock = NSLock()
   private var stream: SCStream?
   private var writer: RecordingWriter?
+  private var markerStore: MarkerStore?
+  private var audioLevelMonitor: AudioLevelMonitor?
   private let outputQueue = DispatchQueue(label: "phospor.scstream.output")
 
   // MARK: - Permissions
@@ -71,6 +73,8 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
     excludedWindowNumbers: [Int],
     cameraBubbleWindowNumber: Int?,
     recordMicrophone: Bool,
+    markerStore: MarkerStore,
+    audioLevelMonitor: AudioLevelMonitor?,
     outputURL: URL
   ) async throws {
     // Re-fetch shareable content so we can map our NSWindow numbers to
@@ -159,15 +163,18 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
     try newStream.addStreamOutput(self, type: .screen, sampleHandlerQueue: outputQueue)
     try await newStream.startCapture()
 
-    commit(writer: writer, stream: newStream)
+    self.audioLevelMonitor = audioLevelMonitor
+    commit(writer: writer, stream: newStream, markers: markerStore)
 
     // Wire the microphone — kicks off after the screen stream so the
     // first video frame establishes the writer session before audio
     // arrives. Audio samples that beat the first video frame are
     // dropped by the writer.
     if recordMicrophone {
+      let monitor = audioLevelMonitor
       AudioCaptureManager.shared.start { [weak self] sampleBuffer in
         self?.currentWriter()?.appendAudio(sampleBuffer)
+        monitor?.process(sampleBuffer)
       }
     }
   }
@@ -175,29 +182,32 @@ final class ScreenCaptureManager: NSObject, @unchecked Sendable {
   /// Stop the current recording and return the finalized output URL.
   func stopRecording() async throws -> URL? {
     AudioCaptureManager.shared.stop()
-    let (s, w) = takeStreamAndWriter()
+    let (s, w, m) = takeStreamAndWriter()
     guard let s, let w else { return nil }
     try await s.stopCapture()
-    return await w.finish()
+    return await w.finish(markerStore: m)
   }
 
   // MARK: - Locked accessors
 
-  private func commit(writer: RecordingWriter, stream: SCStream) {
+  private func commit(writer: RecordingWriter, stream: SCStream, markers: MarkerStore) {
     lock.lock()
     defer { lock.unlock() }
     self.writer = writer
     self.stream = stream
+    self.markerStore = markers
   }
 
-  private func takeStreamAndWriter() -> (SCStream?, RecordingWriter?) {
+  private func takeStreamAndWriter() -> (SCStream?, RecordingWriter?, MarkerStore?) {
     lock.lock()
     defer { lock.unlock() }
     let s = stream
     let w = writer
+    let m = markerStore
     stream = nil
     writer = nil
-    return (s, w)
+    markerStore = nil
+    return (s, w, m)
   }
 
   private func currentWriter() -> RecordingWriter? {

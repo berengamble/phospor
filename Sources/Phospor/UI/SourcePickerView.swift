@@ -10,10 +10,24 @@ struct SourcePickerView: View {
     case loaded(displays: [SCDisplay], windows: [SCWindow])
   }
 
-  @State private var loadState: LoadState = .loading
+  @State private var loadState: LoadState
 
   var onSelect: (CaptureSource) -> Void
   var onClose: () -> Void
+
+  init(
+    prefetchedSources: (displays: [SCDisplay], windows: [SCWindow])? = nil,
+    onSelect: @escaping (CaptureSource) -> Void,
+    onClose: @escaping () -> Void
+  ) {
+    self.onSelect = onSelect
+    self.onClose = onClose
+    if let pre = prefetchedSources {
+      _loadState = State(initialValue: .loaded(displays: pre.displays, windows: pre.windows))
+    } else {
+      _loadState = State(initialValue: .loading)
+    }
+  }
 
   var body: some View {
     TerminalPanel(header: "SELECT SOURCE") {
@@ -29,7 +43,11 @@ struct SourcePickerView: View {
     }
     .padding(14)
     .background(Theme.background)
-    .task { await load() }
+    .task {
+      if case .loading = loadState {
+        await load()
+      }
+    }
   }
 
   @ViewBuilder

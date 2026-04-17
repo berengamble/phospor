@@ -1,4 +1,5 @@
 import AppKit
+import ScreenCaptureKit
 import SwiftUI
 
 @MainActor
@@ -138,16 +139,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
   }
 
-  // MARK: - Source picker
+  // MARK: - Source picker (child window, slides out from the left edge)
 
   private func handlePickSource() {
-    if let existing = sourcePickerPanel {
-      existing.close()
-      sourcePickerPanel = nil
+    if sourcePickerPanel != nil {
+      closeSourcePicker()
       return
     }
+    guard let anchor = controlPanel else { return }
 
+    // Pre-fetch sources so the panel appears fully populated.
+    Task {
+      let sources: (displays: [SCDisplay], windows: [SCWindow])?
+      do {
+        sources = try await ScreenCaptureManager.shared.loadSources()
+      } catch {
+        sources = nil
+      }
+
+      await MainActor.run {
+        self.showSourcePicker(anchor: anchor, prefetched: sources)
+      }
+    }
+  }
+
+  private func showSourcePicker(
+    anchor: NSPanel,
+    prefetched: (displays: [SCDisplay], windows: [SCWindow])?
+  ) {
     let view = SourcePickerView(
+      prefetchedSources: prefetched,
       onSelect: { [weak self] source in
         guard let self else { return }
         self.state.source = source
@@ -159,10 +180,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     )
 
     let hosting = NSHostingView(rootView: view)
-    hosting.translatesAutoresizingMaskIntoConstraints = false
+    let pickerSize = hosting.fittingSize == .zero
+      ? NSSize(width: 400, height: anchor.frame.height)
+      : NSSize(width: hosting.fittingSize.width, height: max(hosting.fittingSize.height, anchor.frame.height))
 
     let panel = NSPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 400, height: 480),
+      contentRect: NSRect(origin: .zero, size: pickerSize),
       styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
       backing: .buffered,
       defer: false
@@ -170,25 +193,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     panel.isFloatingPanel = true
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-    panel.isMovableByWindowBackground = true
+    panel.isMovableByWindowBackground = false
     panel.hasShadow = true
     panel.backgroundColor = .clear
     panel.isOpaque = false
     panel.contentView = hosting
 
-    // Anchor the picker just to the left of the control panel.
-    if let anchor = controlPanel {
-      let size =
-        hosting.fittingSize == .zero ? NSSize(width: 400, height: 480) : hosting.fittingSize
-      let anchorFrame = anchor.frame
-      let origin = NSPoint(
-        x: anchorFrame.minX - size.width - 12,
-        y: anchorFrame.maxY - size.height
-      )
-      panel.setFrame(NSRect(origin: origin, size: size), display: true)
-    }
+    // Position flush-left of the control panel.
+    let finalFrame = NSRect(
+      x: anchor.frame.minX - pickerSize.width,
+      y: anchor.frame.maxY - pickerSize.height,
+      width: pickerSize.width,
+      height: pickerSize.height
+    )
+    panel.setFrame(finalFrame, display: true)
+    panel.orderFront(nil)
 
-    panel.makeKeyAndOrderFront(nil)
+    anchor.addChildWindow(panel, ordered: .below)
     sourcePickerPanel = panel
   }
 

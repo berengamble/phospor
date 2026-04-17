@@ -220,6 +220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let withMic = state.microphoneEnabled
 
     let markers = MarkerStore()
+    markers.videoURL = outputURL
     markers.onMarkerAdded = { [weak self] marker in
       self?.state.markerCount += 1
       self?.state.lastMarkerLabel = marker.chapterTitle

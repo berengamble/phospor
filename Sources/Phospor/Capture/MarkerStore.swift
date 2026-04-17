@@ -18,6 +18,10 @@ final class MarkerStore: @unchecked Sendable {
   /// Used to drive the UI indicator.
   var onMarkerAdded: (@MainActor @Sendable (Marker) -> Void)?
 
+  /// URL of the video file — set at recording start so the sidecar can be
+  /// flushed incrementally as markers arrive.
+  var videoURL: URL?
+
   init(recordingStartDate: Date = Date(), recordingStartMediaTime: CMTime = .zero) {
     self.recordingStartDate = recordingStartDate
     self.recordingStartMediaTime = recordingStartMediaTime
@@ -55,6 +59,7 @@ final class MarkerStore: @unchecked Sendable {
 
     let callback = onMarkerAdded
     Task { @MainActor in callback?(marker) }
+    flushSidecar()
 
     NSLog("[phospor] marker: \(marker.chapterTitle) @ \(String(format: "%.1f", marker.mediaTime))s")
   }
@@ -87,11 +92,19 @@ final class MarkerStore: @unchecked Sendable {
 
     let callback = onMarkerAdded
     Task { @MainActor in callback?(marker) }
+    flushSidecar()
 
     NSLog("[phospor] marker: \(marker.chapterTitle) @ \(String(format: "%.1f", marker.mediaTime))s")
   }
 
   // MARK: - Sidecar JSON
+
+  /// Flush the current markers to the sidecar JSON file. Called after every
+  /// marker add so the file is always up-to-date even if the process dies.
+  private func flushSidecar() {
+    guard let url = videoURL else { return }
+    try? writeSidecarJSON(for: url)
+  }
 
   /// Write the marker list as a JSON sidecar alongside the given video URL.
   /// E.g. `~/Movies/Phospor/Phospor-2026-04-16-120000.markers.json`.

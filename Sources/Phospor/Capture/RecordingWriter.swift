@@ -26,6 +26,9 @@ final class RecordingWriter: @unchecked Sendable {
 
     self.outputURL = outputURL
     self.writer = try AVAssetWriter(outputURL: outputURL, fileType: .mp4)
+    // Flush movie fragments every 10s so the file is recoverable if the
+    // process is killed mid-recording.
+    self.writer.movieFragmentInterval = CMTime(seconds: 10, preferredTimescale: 600)
 
     // ----- Video input -----
     let pixelCount = Double(width * height)
